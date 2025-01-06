@@ -1,7 +1,15 @@
 // Configurar el endpoint de la API
 function doGet(e) {
   const action = e.parameter.action;
-  const sheetName = e.parameter.sheet || "Hoja 1"; // Nombre de la hoja
+  const sheetName = e.parameter.sheet || "Hoja 1"; // Nombre de la hoja principal
+  const token = e.parameter.token; // Token proporcionado en la solicitud
+
+  if (!isValidToken(token)) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "error", message: "Invalid or missing token" })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
 
   if (!sheet) {
@@ -24,6 +32,17 @@ function doGet(e) {
         JSON.stringify({ status: "error", message: "Invalid action" })
       ).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// Validar token contra Hoja 2
+function isValidToken(token) {
+  const tokenSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Hoja 2");
+  if (!tokenSheet) {
+    return false;
+  }
+
+  const tokens = tokenSheet.getDataRange().getValues().flat();
+  return tokens.includes(token);
 }
 
 // Leer todos los datos de la hoja
@@ -76,12 +95,20 @@ function readDataByKey(sheet, key, value) {
 function writeOrUpdateData(sheet, params) {
   const rows = sheet.getDataRange().getValues();
   const headers = rows[0];
-  const key = headers[0]; // Se asume que la primera columna es la clave (puedes cambiarlo si es necesario)
+  const key = headers[0]; // Se asume que la primera columna es la clave
   const keyValue = params[key];
 
   if (!keyValue) {
     return ContentService.createTextOutput(
       JSON.stringify({ status: "error", message: `Key "${key}" is missing in parameters` })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Validar unicidad
+  const uniqueColumn = "email"; // Cambiar dinámicamente según sea necesario
+  if (!isUniqueValue(sheet, uniqueColumn, params[uniqueColumn])) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "error", message: `Value for "${uniqueColumn}" must be unique` })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -92,7 +119,6 @@ function writeOrUpdateData(sheet, params) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Buscar si la clave existe
   const existingRowIndex = rows.findIndex((row, index) => index > 0 && row[keyIndex] == keyValue);
 
   if (existingRowIndex > 0) {
@@ -104,13 +130,26 @@ function writeOrUpdateData(sheet, params) {
     ).setMimeType(ContentService.MimeType.JSON);
   } else {
     // Agregar nueva fila
-    ensureCapacity(sheet); // Asegurar espacio antes de agregar la fila
+    ensureCapacity(sheet);
     const newRow = headers.map((header) => params[header] || "");
     sheet.appendRow(newRow);
     return ContentService.createTextOutput(
       JSON.stringify({ status: "success", message: "Row added" })
     ).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+// Verificar unicidad en una columna
+function isUniqueValue(sheet, columnName, value) {
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const colIndex = headers.indexOf(columnName);
+
+  if (colIndex === -1) {
+    throw new Error(`Column "${columnName}" not found`);
+  }
+
+  return !rows.some((row, index) => index > 0 && row[colIndex] == value);
 }
 
 // Eliminar una línea por llave específica
@@ -125,11 +164,10 @@ function deleteDataByKey(sheet, key, value) {
     ).setMimeType(ContentService.MimeType.JSON);
   }
 
-  // Buscar la fila a eliminar
   const rowIndex = rows.findIndex((row, index) => index > 0 && row[keyIndex] == value);
 
   if (rowIndex > 0) {
-    sheet.deleteRow(rowIndex + 1); // Eliminar fila (rowIndex es base 0)
+    sheet.deleteRow(rowIndex + 1);
     return ContentService.createTextOutput(
       JSON.stringify({ status: "success", message: "Row deleted" })
     ).setMimeType(ContentService.MimeType.JSON);
@@ -145,6 +183,6 @@ function ensureCapacity(sheet) {
   const lastRow = sheet.getLastRow();
   const maxRows = sheet.getMaxRows();
   if (lastRow === maxRows) {
-    sheet.insertRowsAfter(maxRows, 1000); // Agregar 1000 filas
+    sheet.insertRowsAfter(maxRows, 1000);
   }
 }
